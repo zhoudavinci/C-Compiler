@@ -304,11 +304,349 @@ void next() {
   return;
 }
 
+
+/********************* useless code ***********************/
+int expr();
+void match(int tk);
+int factor() {
+  int value = 0;
+  if (token == '(') {
+    match('(');
+    value = expr();
+    match(')');
+  } else {
+    value = token_val;
+    match(Num);
+  }
+  return value;
+}
+
+int term_tail(int lvalue) {
+  if (token == '*') {
+    match('*');
+    int value = lvalue * factor();
+    return term_tail(value);
+  } else if (token == '/') {
+    match('/');
+    int value = lvalue / factor();
+    return term_tail(value);
+  } else {
+    return lvalue;
+  }
+}
+
+int term() {
+  int lvalue = factor();
+  return term_tail(lvalue);
+}
+
+int expr_tail(int lvalue) {
+  if (token == '+') {
+    match('+');
+    int value = lvalue + term();
+    return expr_tail(value);
+  } else if (token == '-') {
+    match('-');
+    int value = lvalue - term();
+    return expr_tail(value);
+  } else {
+    return lvalue;
+  }
+}
+
+int expr() {
+  int lvalue = term();
+  return expr_tail(lvalue);
+}
+/*********************** useless code ***********************/
+
 /**
   * parse expression.
   */
 void expression(int level) {
   return;
+}
+
+int base_type;        // the type of a declaration
+int expr_type;        // the type of an expression
+
+void match(int tk) {
+  if (token == tk) {
+    next();
+  } else {
+    printf("%d: expected token: %d\n", line, tk);
+    exit(-1);
+  }
+}
+
+/*******************************************************************
+int demo(int param_a, int *param_b) {
+  int local_1;
+  char local_2;
+
+  ...
+}
+                function stack
+             |      ......      |
+             +------------------+
+high address |    arg: param_a  |   new_bp + 3
+             +------------------+
+             |    arg: param_b  |   new_bp + 2 
+             +------------------+
+             |  return address  |   new_bp + 1
+             +------------------+
+             |      old BP      |<--new BP
+             +------------------+
+             |      local_1     |   new_bp - 1
+             +------------------+
+low address  |      local_2     |   new_bp - 2
+             +------------------+
+             |      ......      |
+
+*******************************************************************/
+int index_of_bp;              // index of bp pointer on stack
+
+void statements() {
+
+}
+
+void function_parameter() {
+  int type;
+  int params = 0;             // index of current parameter
+  while (token != ')') {
+    // int name, ...
+    type = INT;
+    if (token == INT) {
+      match(Int);
+    } else if (token == Char) {
+      type = CHAR;
+      match(Char);
+    }
+
+    // pointer type
+    while (token == Mul) {
+      match(Mul);
+      type = type + PTR;
+    }
+
+    // parameter name
+    if (token != Id) {
+      printf("%d: bad parameter declaration.\n", line);
+      exit(-1);
+    }
+    if (current_id[Class] == Loc) {
+      printf("%d: duplicate parameter declaration\n", line);
+      exit(-1);
+    }
+
+    match(Id);
+
+    // store the local variable
+    current_id[BClass] = current_id[Class];
+    current_id[Class] = Loc;
+    current_id[BType] = current_id[Type];
+    current_id[Type] = type;
+    current_id[BValue] = current_id[Value];
+    current_id[Value] = params++;
+
+    if (token == ',') {
+      match(',');
+    }
+  }
+
+  index_of_bp = params + 1;
+}
+
+void function_body() {
+  // type func_name (...) {...}
+
+  // ... {
+  // 1. local declarations
+  // 2. statements
+  // }
+
+  int pos_local;              // position of local variables on the stack
+  int type;
+  pos_local = index_of_bp;
+
+  while (token == Int || token == Char) {
+    // local variable declaration, just like global ones
+    base_type = (token == Int) ? INT : CHAR;
+    match(token);
+
+    while (token != ';') {
+      type = base_type;
+      while (token == Mul) {
+        match(Mul);
+        type = type + PTR;
+      }
+
+      if (token != Id) {
+        // invalid declaration
+        printf("%d: bad local declaration\n", line);
+        exit(-1);
+      }
+      if (current_id[Class] == Loc) {
+        // identifier exists
+        printf("%d: duplicate local declaration\n", line);
+        exit(-1);
+      }
+      match(Id);
+
+      // store the local variable
+      current_id[BClass] = current_id[Class];
+      current_id[Class] = Loc;
+      current_id[BType] = current_id[Type];
+      current_id[Type] = type;
+      current_id[BValue] = current_id[Value];
+      current_id[Value] = ++pos_local;
+
+      if (token == ',') {
+        match(',');
+      }
+    }
+    match(';');
+  }
+
+  // save the stack size for local variables
+  *++text = ENT;
+  *++text = pos_local - index_of_bp;
+
+  // statements
+  while (token != '}') {
+    statements();
+  }
+
+  // emit code for leaving the sub function
+  *++text = LEV;
+}
+
+void function_declaration() {
+  // type func_name (...) {...}
+  match('(');
+  function_parameter();
+  match(')');
+  match('{');
+  function_body();
+  
+  current_id = symbols;
+  while (current_id[Token]) {
+    if (current_id[Class] == Loc) {
+      current_id[Class] = current_id[BClass];
+      current_id[Type] = current_id[BType];
+      current_id[Value] = current_id[BValue];
+    }
+    current_id = current_id + IdSize;
+  }
+}
+
+void enum_declaration() {
+  // parse enum [id] { a = 1, b = 2, ... }
+  int i = 0;
+  while (token != '}') {
+    if (token != Id) {
+      printf("%d: bad enum identifier %d\n", line, token);
+      exit(-1);
+    }
+    next();
+
+    if (token == Assign) {
+      // like {a = 10}
+      next();
+      if (token != Num) {
+        printf("%d: bad enum initializer\n", line);
+        exit(-1);
+      }
+      i = token_val;
+      next();
+    }
+
+    current_id[Class] = Num;
+    current_id[Type] = INT;
+    current_id[Value] = i++;
+
+    if (token == ',') {
+      next();
+    }
+
+  }
+}
+
+void global_declaration() {
+  // global_declaration ::= enum_decl | variable_decl | function_decl
+  // enum_decl ::= 'enum' [id] '{' id ['=' 'num'] {',' id ['=' 'num'} '}'
+  // variable_decl ::= type {'*'} id { ',' {'*'} id } ';'
+  // function_decl ::= type {'*'} id '(' parameter_decl ')' '{' body_decl '}'
+
+  int type;           // type for variable
+  int i;
+
+  // parse enum, this should be treated alone
+  if (token == Enum) {
+    // enum [id] {a = 10, b= 20, ... }
+    match(Enum);
+    if (token != '{') {
+      // skip the [id] part
+      match(Id);
+    }
+    if (token == '{') {
+      // parse the assign part
+      match('{');
+      enum_declaration();
+      match('}');
+    }
+
+    match(';');
+    return;
+  }
+
+  // parse type information
+  if (token == Int) {
+    match(Int);
+  } else if (token == Char) {
+    match(Char);
+    base_type = CHAR;
+  }
+
+  // parse the comma seperated variable declaration
+  while (token != ';' && token != '}') {
+    type = base_type;
+    // parse pointer type, note that there may exist `int ****x;`
+    while (token == Mul) {
+      match(Mul);
+      type = type + PTR;
+    }
+
+    if (token != Id) {
+      // invalid declaration
+      printf("%d: bad global declaration\n", line);
+      exit(-1);
+    }
+
+    if (current_id[Class]) {
+      // identifier exists
+      printf("%d: duplicate global declaration\n", line);
+      exit(-1);
+    }
+    match(Id);
+    current_id[Type] = type;
+
+    if (token == '(') {
+      current_id[Class] = Fun;
+      current_id[Value] = (int)(text + 1);    // the memory address of function
+      function_declaration();
+    } else {
+      current_id[Class] = Glo;
+      current_id[Value] = (int)data;          // assign memory address
+      data = data + sizeof(int);
+    }
+
+    if (token == ',') {
+      match(',');
+    }
+  }
+
+  next();
 }
 
 /**
@@ -317,8 +655,7 @@ void expression(int level) {
 void program() {
   next();
   while (token > 0) {
-    printf("token is: %c\n", token);
-    next();
+    global_declaration();
   }
   return;
 }
