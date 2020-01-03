@@ -406,8 +406,96 @@ low address  |      local_2     |   new_bp - 2
 *******************************************************************/
 int index_of_bp;              // index of bp pointer on stack
 
-void statements() {
+void statement() {
+  int* a, *b;
+  // if (...) <statement> [else <statement>]
+  //    if (<cond>)               <cond>
+  //                              JZ a
+  //      <true_statement>        <true_statement>
+  //    else                      JMP b
+  //  a:  
+  //      <false_statement>       <false_statement>
+  //  b:
 
+  if (token == If) {
+    match(If);
+    match('(');
+    expression(Assign);         // parse condition
+    match(')');
+
+    *++text = JZ;
+    b = ++text;
+
+    statement();                // parse statement
+    if (token == Else) {
+      match(Else);
+
+      // emit code for JMP b
+      *b = (int)(text + 3);
+      *++text = JMP;
+      b = ++text;
+
+      statement();
+    }
+
+    *b = (int)(text + 1);
+  }
+
+  // a: 
+  //    while (<cond>)              <cond>
+  //                                JZ b
+  //      <statement>               <statement>
+  //                                JMP a
+  // b:
+  
+  else if (token == While) {
+    match(While);
+    a = text + 1;
+    match('(');
+    expression(Assign);
+    match(')');
+    *++text = JZ;
+    b = ++text;
+
+    statement();
+
+    *++text = JMP;
+    *++text = (int)a;
+    *b = (int)(text + 1);
+  }
+
+  else if (token == Return) {
+    match(Return);
+    if (token != ';') {
+      expression(Assign);
+    }
+
+    match(';');
+
+    //  emit code for return
+    *++text = LEV;
+  }
+
+  else if (token == '{') {
+    // { <statement> ...
+    match('{');
+
+    while (token != '}') {
+      statement();
+    }
+    match('}');
+  }
+
+  else if (token == ';') {
+    // empty statement
+    match(';');
+  }
+
+  else {
+    // a = b; or function_call();
+    expression(Assign);
+    match(';');
+  }
 }
 
 void function_parameter() {
@@ -514,7 +602,7 @@ void function_body() {
 
   // statements
   while (token != '}') {
-    statements();
+    statement();
   }
 
   // emit code for leaving the sub function
